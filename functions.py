@@ -1,7 +1,7 @@
 import requests
 from bs4 import BeautifulSoup
 from fake_headers import Headers
-
+from email_scraper import scrape_emails
 
 def generate_headers():
     header = Headers()
@@ -21,9 +21,23 @@ def scrape_search_results(keyword,amount):
 
 
 
-def scrape_emails(urls):
-    return #dictionary of domains with emails
+def scrape_email_from_source(url):
 
+    headers = generate_headers()
+
+    req = requests.get(url,headers=headers)
+
+    soup = BeautifulSoup(req.content,'lxml')
+
+    sc_email = scrape_emails(str(soup))
+
+    searched_email = None
+
+    if len(list(sc_email)) != 0 and list(sc_email)[0] != 'email@example.com':
+        searched_email = list(sc_email)[0]
+
+    
+    return searched_email
 
 
 

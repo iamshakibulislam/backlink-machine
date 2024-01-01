@@ -9,6 +9,8 @@ from functions import generate_headers
 import requests
 from bs4 import BeautifulSoup
 from fake_headers import Headers
+from email_scraper import scrape_emails
+import tldextract
 
 class UI(QMainWindow):
 	def __init__(self):
@@ -24,6 +26,8 @@ class UI(QMainWindow):
 		self.mass_email_window_opener_btn.clicked.connect(self.open_mass_email_window)
 		self.add_email_window_opener_btn = self.findChild(QPushButton,"add_email_account_window_opener_btn")
 		self.error = uic.loadUi('ui/error.ui')
+
+		self.set_table_headers(self.table,["Domain", "Email", "DA", "PA", "Spam Score"])
 		
 
 	
@@ -54,44 +58,89 @@ class UI(QMainWindow):
 		except:
 			self.error.show()
 			return
+		
+		
 
+		
 
 		self.thread = Worker(keyword,site_amount)
 		self.thread.finished_signal.connect(self.proccess_done)
 		self.thread.update_signal.connect(self.update_status)
 		self.thread.start()
-
-
-
-	def update_status(self):
-		pass
-
-
-	def proccess_done(self):
-		pass
-
 		
 
 
+
+	def update_status(self,data):
+		
+		self.insert_data_into_table(self.table,data)
+
+
+	def proccess_done(self):
+		print("done")
+		pass
+
+		
+	
+	
+	def set_table_headers(self,table,headers):
+
+		table.setColumnCount(len(headers))
+		table.setHorizontalHeaderLabels(headers)
+		total_width = table.viewport().size().width()
+		for col, percentage in enumerate([35,40,5,5,15]):
+			size = int(total_width * (percentage / 100))
+			table.setColumnWidth(col, size)
+
+	def insert_data_into_table(self,table, data):
+    # Insert a new row at the top
+		table.insertRow(0)
+
+    # Iterate over the dictionary and fill the table
+		for col, key in enumerate(data.keys()):
+			value = data.get(key, "")
+			table.setItem(0, col, QTableWidgetItem(str(value)))
 	
 
 class Worker(QThread):
 	def __init__(self,keyword,site_amount):
 		self.keyword = keyword
 		self.site_amount = site_amount
+		super().__init__()
 
 	finished_signal = pyqtSignal(int)
 	update_signal = pyqtSignal(dict)
 
-	def search_on_bing(query,pos=0):
+	def scrape_email_from_source(self,url):
 
-		req_url = f"https://www.bing.com/search?q={query} +write+for+us&qs=n&sp=-1&lq=0&pq={query} +write+for+us&sc=11-23&sk=&cvid=6FCCD7C9B6B94A61A7A0E8684D026108&ghsh=0&ghacc=0&ghpl=&FPIG=BBA1A09D897248F09380525FF21642E0&first={pos}&FORM=PERE"
+		headers = generate_headers()
+		try:
+			req = requests.get(url,headers=headers)
+		except:
+			return None
+
+		soup = BeautifulSoup(req.content,'lxml')
+
+		sc_email = scrape_emails(str(soup))
+
+		searched_email = None
+
+		if len(list(sc_email)) != 0 and list(sc_email)[0] != 'email@example.com':
+			searched_email = list(sc_email)[0]
+
+		
+		return searched_email
+
+
+	def search_on_bing(self,query,pos=0):
+
+		req_url = f"https://www.bing.com/search?q={query}+write+for+us&first={pos}"
 
 		headers = generate_headers()
 
 		try:
 
-			res = requests.get(req_url,headers=headers)
+			res = requests.get(req_url)
 			content = res.content
 
 		except:
@@ -100,7 +149,7 @@ class Worker(QThread):
 
 		return content
 
-	def extract_urls_from_html(html_content):
+	def extract_urls_from_html(self,html_content):
     # Parse the HTML content using BeautifulSoup
 		soup = BeautifulSoup(html_content, 'html.parser')
 		
@@ -128,7 +177,11 @@ class Worker(QThread):
 
 		url_list = []
 		
-		for pagenum in total_pages:
+		for pagenum in range(total_pages):
+			#self.update_signal.emit({"domain":"https://facebook.com","email":"iamshakibulislam@gmail.com","DA":0,"PA":0,"Spam_score":10})
+			#self.finished_signal.emit(1)
+			print("loop starting - ",pagenum)
+			
 
 			if pos_tracking == 0:
 				this_page_content = self.search_on_bing(self.keyword,pos_tracking)
@@ -137,16 +190,33 @@ class Worker(QThread):
 				pos_tracking += 10
 				this_page_content = self.search_on_bing(self.keyword,pos_tracking)
 
-			
+			print(this_page_content)
 			new_urls = self.extract_urls_from_html(this_page_content)
 
 			url_list += new_urls
 
+			print("new urls is : ",new_urls)
+
 			#now extract email addresses from these urls and output in a dictionary with root domain
+
+			for url in new_urls:
+				print("url is - ",url)
+				try:
+					found_email=self.scrape_email_from_source(url)
+					if found_email != None:
+						get_root_domain = tldextract.extract(url)
+						check_this_link_domain = 'https://'+get_root_domain.domain+'.'+get_root_domain.suffix
+						new_data = {"url":check_this_link_domain,"email":found_email,"DA":0,"PA":0,"Spam_score":0}
+						self.update_signal.emit(new_data)
+				except:
+					print("something went wrong... next")
+					
 
 			#now add DA PA Spam scroe matrix to a new dictionary with prvious data, like this - [{"url":"test.com","email":"test@gmail.com","DA":34,"PA":11,"spam_score":13}]
 
 			#next update the table adding these new rows on the GUI table . emit the update
+			print("done task...")
+			break
 
 		
 		#end the loop and emit the finished
