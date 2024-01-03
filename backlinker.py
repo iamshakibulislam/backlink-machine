@@ -13,6 +13,7 @@ from fake_headers import Headers
 from email_scraper import scrape_emails
 import tldextract
 import csv
+import random
 
 class UI(QMainWindow):
 	def __init__(self):
@@ -33,7 +34,7 @@ class UI(QMainWindow):
 		self.savedbtn = uic.loadUi('ui/saved.ui')
 		self.email_form = uic.loadUi('ui/email_input_form.ui')
 
-		self.set_table_headers(self.table,["Domain", "Email", "DA", "PA", "Backlinks"])
+		self.set_table_headers(self.table,["Domain", "Email", "DA", "PA", "Spam Score"])
 
 		self.loading_label = self.findChild(QLabel,"loading_label")
 
@@ -182,6 +183,7 @@ class UI(QMainWindow):
 		
 	
 	
+	
 	def set_table_headers(self,table,headers):
 
 		table.setColumnCount(len(headers))
@@ -209,6 +211,101 @@ class Worker(QThread):
 
 	finished_signal = pyqtSignal(int)
 	update_signal = pyqtSignal(dict)
+
+	def get_da_pa(self,domain):
+
+		try:
+
+			letter = "abcdefghijklmnopqrstuvwxyz"
+			randstr=letter[random.randint(0,25)]+letter[random.randint(0,25)]
+
+
+
+			
+			cookies = {
+			'_ga': 'GA1.2.1854752040.1703849013',
+			'_gid': 'GA1.2.2133451622.1704200455',
+			'PHPSESSID': f'5a0bc61a1fdd307dcd0600ab3be7549{randstr}',
+			}
+
+			headers = {
+				'authority': 'www.robingupta.com',
+				'accept': '*/*',
+				'accept-language': 'en-US,en;q=0.9',
+				'content-type': 'application/x-www-form-urlencoded; charset=UTF-8',
+				# 'cookie': '_ga=GA1.2.1854752040.1703849013; _gid=GA1.2.2133451622.1704200455; PHPSESSID=5a0bc61a1fdd307dcd0600ab3be7549fa',
+				'origin': 'https://www.robingupta.com',
+				'referer': 'https://www.robingupta.com/bulk-domain-authority-checker.html',
+				'sec-ch-ua': '"Not_A Brand";v="8", "Chromium";v="120", "Google Chrome";v="120"',
+				'sec-ch-ua-mobile': '?0',
+				'sec-ch-ua-platform': '"Windows"',
+				'sec-fetch-dest': 'empty',
+				'sec-fetch-mode': 'cors',
+				'sec-fetch-site': 'same-origin',
+				'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+				'x-requested-with': 'XMLHttpRequest',
+			}
+
+			data = {
+				'website_name': f'{domain}',
+				'da': 'y',
+				'pa': 'y',
+				'ss': 'y',
+				'page_token': 'get_website',
+				'mng_t': '0',
+				'mng_2_api_urls': 'https://thefashionhubs.com/wp-content/plugins/mng_bulk_domain_authority_api_v3/api.php',
+			}
+
+			response = requests.post(
+				'https://www.robingupta.com/wp-content/plugins/mng_domain_auth_v3//alexa.action.php',
+				cookies=cookies,
+				headers=headers,
+				data=data,
+			)
+
+			#finally get the da pa spam score
+
+			cookies = {
+			'_ga': 'GA1.2.1854752040.1703849013',
+			'_gid': 'GA1.2.2133451622.1704200455',
+			'PHPSESSID': f'5a0bc61a1fdd307dcd0600ab3be7549{randstr}',
+			}
+
+			headers = {
+				'authority': 'www.robingupta.com',
+				'accept': '*/*',
+				'accept-language': 'en-US,en;q=0.9',
+				# 'cookie': '_ga=GA1.2.1854752040.1703849013; _gid=GA1.2.2133451622.1704200455; PHPSESSID=5a0bc61a1fdd307dcd0600ab3be7549fa',
+				'referer': 'https://www.robingupta.com/bulk-domain-authority-checker.html',
+				'sec-ch-ua': '"Not_A Brand";v="8", "Chromium";v="120", "Google Chrome";v="120"',
+				'sec-ch-ua-mobile': '?0',
+				'sec-ch-ua-platform': '"Windows"',
+				'sec-fetch-dest': 'empty',
+				'sec-fetch-mode': 'cors',
+				'sec-fetch-site': 'same-origin',
+				'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+				'x-requested-with': 'XMLHttpRequest',
+			}
+
+			response = requests.get(
+				f'https://www.robingupta.com/wp-content/plugins/mng_domain_auth_v3//alexa.action.php?sitename={domain}&page_token=get_website&null&da=y&pa=y&ss=y&v=1',
+				cookies=cookies,
+				headers=headers,
+			)
+
+
+			soup = BeautifulSoup(response.content,'html.parser')
+
+			th_tags = soup.find_all('th')
+
+			last_three_values = [th.text.strip() for th in th_tags[-3:]]
+
+
+
+			return last_three_values
+
+		except:
+			return [0,0,0]
 
 	def scrape_email_from_source(self,url):
 
@@ -277,17 +374,6 @@ class Worker(QThread):
 		url_list = []
 		
 		for pagenum in range(total_pages):
-			self.update_signal.emit({"domain":"https://facebook.com","email":"iamshakibulislam@gmail.com","DA":0,"PA":0,"Spam_score":10})
-			#self.finished_signal.emit(1)
-			print("loop starting - ",pagenum)
-
-			time.sleep(10)
-
-			self.finished_signal.emit(1)
-
-			break
-			
-
 			if pos_tracking == 0:
 				this_page_content = self.search_on_bing(self.keyword,pos_tracking)
 				pos_tracking += 1
@@ -311,7 +397,18 @@ class Worker(QThread):
 					if found_email != None:
 						get_root_domain = tldextract.extract(url)
 						check_this_link_domain = 'https://'+get_root_domain.domain+'.'+get_root_domain.suffix
-						new_data = {"url":check_this_link_domain,"email":found_email,"DA":0,"PA":0,"Spam_score":0}
+						try:
+							mozdata = self.get_da_pa(check_this_link_domain)
+							da = mozdata[0]
+							pa = mozdata[1]
+							spam_score = mozdata[2]
+
+						except:
+							da = 0
+							pa = 0
+							spam_score = 0
+
+						new_data = {"url":check_this_link_domain,"email":found_email,"DA":da,"PA":pa,"Spam_score":spam_score}
 						self.update_signal.emit(new_data)
 				except:
 					print("something went wrong... next")
@@ -322,8 +419,8 @@ class Worker(QThread):
 			#next update the table adding these new rows on the GUI table . emit the update
 			print("done task...")
 
-			self.finished_signal.emit(1)
-			break
+		self.finished_signal.emit(1)
+			
 
 		
 		#end the loop and emit the finished
