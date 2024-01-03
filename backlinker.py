@@ -34,6 +34,12 @@ class UI(QMainWindow):
 		self.savedbtn = uic.loadUi('ui/saved.ui')
 		self.email_form = uic.loadUi('ui/email_input_form.ui')
 
+		self.email_input = self.email_form.findChild(QPlainTextEdit,'email_input')
+		self.password_input = self.email_form.findChild(QPlainTextEdit,'password_input')
+		self.email_submit_btn = self.email_form.findChild(QPushButton,'save_email')
+
+		self.email_submit_btn.clicked.connect(self.add_email_account)
+
 		self.set_table_headers(self.table,["Domain", "Email", "DA", "PA", "Spam Score"])
 
 		self.loading_label = self.findChild(QLabel,"loading_label")
@@ -69,6 +75,23 @@ class UI(QMainWindow):
             # Implement your desired action here
 			return True
 		return super().eventFilter(obj, event)
+	
+	def add_email_account(self):
+		input_email = self.email_input.toPlainText()
+		input_pass = self.password_input.toPlainText()
+
+		if len(input_email)==0 or len(input_pass) == 0:
+			self.error.show()
+
+		else:
+			fo = open("email_account.txt","w")
+			fo.write(str(input_email)+"+"+str(input_pass))
+			fo.close()
+
+			if fo:
+				self.savedbtn.show()
+			else:
+				self.error.show()
 	
 	def open_email_form(self):
 		self.email_form.show()
