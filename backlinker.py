@@ -14,12 +14,23 @@ from email_scraper import scrape_emails
 import tldextract
 import csv
 import random
+import pandas as pd
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
+
 
 class UI(QMainWindow):
 	def __init__(self):
 		super().__init__()
 		uic.loadUi('ui/main.ui',self)
 		self.mass_email_window = uic.loadUi('ui/send_email_form.ui')
+		self.percentage = self.mass_email_window.findChild(QLabel,'percentage')
+
+		self.percentage.hide()
+
+		self.upload_btn = self.mass_email_window.findChild(QPushButton,'upload_btn')
+		self.upload_btn.clicked.connect(self.upload_email_list)
 		self.keyword = self.findChild(QTextEdit,"input_keyword")
 		self.quant = self.findChild(QTextEdit,"input_quant")
 		self.find_guest_post = self.findChild(QPushButton,"search_btn")
@@ -28,6 +39,8 @@ class UI(QMainWindow):
 		self.mass_email_window_opener_btn = self.findChild(QPushButton,"send_mass_email_open_btn")
 		self.mass_email_window_opener_btn.clicked.connect(self.open_mass_email_window)
 		self.add_email_window_opener_btn = self.findChild(QPushButton,"add_email_account_window_opener_btn")
+
+		self.qemaillist = self.mass_email_window.findChild(QListWidget,"listWidget")
 
 		self.add_email_window_opener_btn.clicked.connect(self.open_email_form)
 		self.error = uic.loadUi('ui/error.ui')
@@ -39,6 +52,8 @@ class UI(QMainWindow):
 		self.email_submit_btn = self.email_form.findChild(QPushButton,'save_email')
 
 		self.email_submit_btn.clicked.connect(self.add_email_account)
+
+		self.email_list = []
 
 		self.set_table_headers(self.table,["Domain", "Email", "DA", "PA", "Spam Score"])
 
@@ -62,6 +77,19 @@ class UI(QMainWindow):
 		self.download_label.installEventFilter(self)
 		self.download_label.hide()
 
+		self.email_subject_field=self.mass_email_window.findChild(QPlainTextEdit,"emailsubject")
+
+		self.email_body_field=self.mass_email_window.findChild(QPlainTextEdit,"emailbody")
+
+		self.email_send_mail_button=self.mass_email_window.findChild(QPushButton,"send_mail_button")
+
+		self.email_send_mail_button.clicked.connect(self.send_mail_now)
+
+		self.email_sent_ui = uic.loadUi('ui/email_sent.ui')
+
+
+
+
 		#self.download_btn.clicked.connect(self.download)
 
 		#self.loading_label.hide()
@@ -75,6 +103,70 @@ class UI(QMainWindow):
             # Implement your desired action here
 			return True
 		return super().eventFilter(obj, event)
+	
+	def send_mail_now(self):
+		if len(self.email_list) == 0 or len(self.email_subject_field.toPlainText()) == 0 or len(self.email_body_field.toPlainText())==0:
+			self.error.show()
+			return
+		
+
+		acc= open('email_account.txt','r')
+		content = acc.read()
+	
+		email = str(content).split("+")[0]
+		password = str(content).split("+")[1]
+
+		acc.close()
+
+		print(email,"  ",password)
+
+
+
+		subject_field = self.email_subject_field.toPlainText()
+		body_field = self.email_body_field.toPlainText()
+
+
+		self.percentage.show()
+		self.percentage.setText("      0 %")
+		self.thread = EmailWorker(email,password,subject_field,body_field,self.email_list)
+		self.thread.finished_signal.connect(self.email_proccess_done)
+		self.thread.update_signal.connect(self.update_email)
+		
+		self.thread.start()
+
+	def update_email(self,data):
+
+		text_setup = round(data,2)
+		
+		self.percentage.setText(str(      text_setup)+"  %")
+
+	def email_proccess_done(self):
+		self.percentage.hide()
+		self.email_sent_ui.show()
+
+	
+	def upload_email_list(self):
+		
+
+		filepath = self.open_file_dialogue_for_upload()
+
+		email_list = self.get_emails(filepath)
+
+		self.email_list = []
+
+		self.email_list = email_list
+
+		self.qemaillist.clear()
+
+		
+
+		self.mass_email_window.activateWindow()
+
+		for email in self.email_list:
+			self.qemaillist.addItem(email)
+
+
+		print(filepath)
 	
 	def add_email_account(self):
 		input_email = self.email_input.toPlainText()
@@ -137,6 +229,37 @@ class UI(QMainWindow):
 
 		else:
 			print("error saving file")
+
+	def get_emails(self,file_path):
+
+		df = pd.read_csv(file_path)
+
+		emails = list(set(list(df["Email"])))
+
+		for email in emails:
+			if email == None or email == "" or email == " " or len(email.split(" ")) > 1 or "example" in email:
+				del emails[emails.index(email)]
+
+
+
+		return emails
+
+
+	def open_file_dialogue_for_upload(self):
+		options = QFileDialog.Options()
+		# Set the file dialog to open mode
+		file_name, _ = QFileDialog.getOpenFileName(self, "Open File", "", "Csv Files (*.csv);;All Files (*)", options=options)
+		
+		if file_name:
+			# Do something with the selected file path (e.g., read the file)
+			print(f"Selected file path: {file_name}")
+			# Implement your file reading logic here
+
+			return file_name
+
+
+		else:
+			return None
 
 
 	def open_file_dialouge(self):
@@ -443,6 +566,80 @@ class Worker(QThread):
 			print("done task...")
 
 		self.finished_signal.emit(1)
+
+
+
+class EmailWorker(QThread):
+	def __init__(self,email,password,subject,body,email_list):
+		self.email = email
+		self.password = password
+		self.email_list = email_list
+		self.subject = subject
+		self.body = body
+		super().__init__()
+
+	finished_signal = pyqtSignal(int)
+	update_signal = pyqtSignal(float)
+
+
+
+	def send_email(self,gmail_username, app_password, subject, body, to_email):
+		# Set up the email parameters
+		sender_email = gmail_username
+		recipient_email = to_email
+
+		message = MIMEMultipart()
+		message['From'] = sender_email
+		message['To'] = recipient_email
+		message['Subject'] = subject
+
+		# Add the email body to the message
+		message.attach(MIMEText(body, 'plain'))
+
+		# Create a secure SSL context
+		context = smtplib.SMTP_SSL('smtp.gmail.com', 465)
+
+		try:
+			# Login to the Gmail account
+			context.login(sender_email, app_password)
+
+			# Send the email
+			context.sendmail(sender_email, recipient_email, message.as_string())
+			print(f"Email successfully sent to {recipient_email}")
+
+		except Exception as e:
+			print(f"An error occurred while sending the email: {e}")
+
+		finally:
+			# Close the connection
+			context.quit()
+
+
+	def run(self):
+			
+			i=1
+			
+			for email in self.email_list:
+				try:
+					self.send_email(self.email,self.password,self.subject,self.body,email)
+					cal_percentage = (i/len(self.email_list))*100
+					self.update_signal.emit(round(cal_percentage,2))
+
+				except:
+					print("can not send email")
+
+				i+=1
+
+			self.finished_signal.emit(1)
+					
+
+
+
+
+
+
+
+
 			
 
 		
