@@ -15,9 +15,15 @@ import tldextract
 import csv
 import random
 import pandas as pd
+from PyQt5.QtWebEngineWidgets import QWebEngineView
 import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
+import base64
+from selenium import webdriver
+from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.chrome.service import Service
+from webdriver_manager.chrome import ChromeDriverManager
 
 
 class UI(QMainWindow):
@@ -26,6 +32,8 @@ class UI(QMainWindow):
 		uic.loadUi('ui/main.ui',self)
 		self.mass_email_window = uic.loadUi('ui/send_email_form.ui')
 		self.percentage = self.mass_email_window.findChild(QLabel,'percentage')
+
+		self.login = uic.loadUi('ui/login.ui')
 
 		self.percentage.hide()
 
@@ -87,6 +95,14 @@ class UI(QMainWindow):
 
 		self.email_sent_ui = uic.loadUi('ui/email_sent.ui')
 
+		self.emailbox = self.login.findChild(QTextEdit,"emailbox")
+		self.passwordbox = self.login.findChild(QTextEdit,"passwordbox")
+		self.login_btn = self.login.findChild(QPushButton,"login_btn")
+
+		self.login_btn.clicked.connect(self.login_me)
+
+		self.browserspace=self.findChild(QGridLayout,"web_browser")
+
 
 
 
@@ -103,6 +119,54 @@ class UI(QMainWindow):
             # Implement your desired action here
 			return True
 		return super().eventFilter(obj, event)
+	
+	def login_me(self):
+		useremail = self.emailbox.toPlainText()
+		userpass = self.passwordbox.toPlainText()
+
+		if len(useremail) == 0 or len(userpass) == 0:
+			self.error.show()
+			return
+		
+		auth = self.check_authentication(useremail,userpass)
+
+		if auth == False:
+			self.error.show()
+			return
+
+		else:
+			fo = open("lsnc.txt","w")
+			fo.write(useremail+"+"+userpass)
+			fo.close()
+			self.login.hide()
+
+
+	
+	def chk(self,endpoint_url, username, password):
+    # Encode the username and password in base64
+		credentials = f"{username}:{password}"
+		encoded_credentials = base64.b64encode(credentials.encode('utf-8')).decode('utf-8')
+		
+		
+		# Set the headers for the request
+		headers = {
+			"Authorization": f"Basic {encoded_credentials}"
+		}
+		
+		# Send the request and get the response
+		response = requests.get(endpoint_url, headers=headers)
+		
+		# Return the status code
+		return response.status_code
+
+	def check_authentication(self,email,password):
+		
+		
+		if self.chk("https://platisoft.com/wp-json/wp/v2/posts",email,password) == 200:
+			return True
+		
+		else:
+			return False
 	
 	def send_mail_now(self):
 		if len(self.email_list) == 0 or len(self.email_subject_field.toPlainText()) == 0 or len(self.email_body_field.toPlainText())==0:
@@ -280,6 +344,14 @@ class UI(QMainWindow):
 
 
 	def find_guest_post_action(self):
+
+		try:
+			fo=open("lsnc.txt","r")
+
+		except:
+			self.login.show()
+			return
+
 		keyword = self.keyword.toPlainText()
 		site_amount = self.quant.toPlainText()
 
@@ -472,11 +544,67 @@ class Worker(QThread):
 
 		
 		return searched_email
+	
+	
+	def get_html_source(self,url):
+		# Configure the Chrome options for headless mode
+		chrome_options = Options()
+		chrome_options.add_argument("headless")  # Run Chrome in headless mode
+		#chrome_options.add_argument("--no-sandbox")
+		#chrome_options.add_argument("--disable-dev-shm-usage")
+		chrome_options.add_argument("--window-size=1920,1080")
+		chrome_options.add_argument(
+    "user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/87.0.4280.88 Safari/537.36")
+		#chrome_options.binary_location = r"chromedriver.exe"
 
+		
+
+
+		
+		# Initialize the Chrome WebDriver with headless options
+		driver = webdriver.Chrome(options=chrome_options,service=Service(ChromeDriverManager().install()))
+
+		#driver = webdriver.Chrome(ChromeDriverManager().install())
+		
+		try:
+			# Navigate to the URL
+			driver.get(url)
+			
+			# Get the page source after the page is fully loaded
+			html_source = driver.page_source
+			
+			# Print first 500 characters of the HTML source
+			return html_source
+			
+		except Exception as e:
+			print(f"An error occurred: {e}")
+		
+		finally:
+			# Close the WebDriver
+			#driver.quit()
+			print("current url is ",driver.current_url)
+			print("done")
+			
 
 	def search_on_bing(self,query,pos=0):
 
-		req_url = f"https://www.bing.com/search?q={query}+write+for+us&first={pos}"
+		print("------------my pose----------- is - ",pos)
+		q=query
+		newq=q.replace(" ","+")
+
+		req_url = f"https://www.bing.com/search?q={newq}+write+for+us&first={pos}&FORM=PERE1"
+
+		print("------------------------------: ",req_url)
+
+		source = self.get_html_source(req_url)
+
+		return source
+
+
+		
+        
+
+		'''
 
 		headers = generate_headers()
 
@@ -487,9 +615,9 @@ class Worker(QThread):
 
 		except:
 			content = None
+		'''
 
-
-		return content
+		#return content
 
 	def extract_urls_from_html(self,html_content):
     # Parse the HTML content using BeautifulSoup
@@ -511,26 +639,14 @@ class Worker(QThread):
 				href_list.append(a_tag['href'])
 				
 		return href_list
+	
+	def on_load_finished(self,ok):
+		if ok:
+			source = self.sender().page().toHtml()
+			print(source)
+			new_urls = self.extract_urls_from_html(source)
 
-	def run(self):
-		total_pages = int((int(self.site_amount)*4)/10)
-
-		pos_tracking = 0
-
-		url_list = []
-		
-		for pagenum in range(total_pages):
-			if pos_tracking == 0:
-				this_page_content = self.search_on_bing(self.keyword,pos_tracking)
-				pos_tracking += 1
-			else:
-				pos_tracking += 10
-				this_page_content = self.search_on_bing(self.keyword,pos_tracking)
-
-			print(this_page_content)
-			new_urls = self.extract_urls_from_html(this_page_content)
-
-			url_list += new_urls
+			#url_list += new_urls
 
 			print("new urls is : ",new_urls)
 
@@ -558,6 +674,59 @@ class Worker(QThread):
 						self.update_signal.emit(new_data)
 				except:
 					print("something went wrong... next")
+					
+
+	def run(self):
+		total_pages = int((int(self.site_amount)*4)/10)
+
+		pos_tracking = 11
+
+		url_list = []
+		
+		for pagenum in range(total_pages):
+			
+			if pos_tracking == 0:
+				this_page_content = self.search_on_bing(self.keyword,pos_tracking)
+				pos_tracking += 1
+			else:
+				pos_tracking += 10
+				print("pos tracking number : ",pos_tracking)
+				this_page_content = self.search_on_bing(self.keyword,pos_tracking)
+
+			#print(this_page_content)
+			
+			new_urls = self.extract_urls_from_html(this_page_content)
+
+			#url_list += new_urls
+
+			print("new urls is : ",new_urls)
+
+			#now extract email addresses from these urls and output in a dictionary with root domain
+
+			for url in new_urls:
+				print("url is - ",url)
+				try:
+					found_email=self.scrape_email_from_source(url)
+					if found_email != None:
+						get_root_domain = tldextract.extract(url)
+						check_this_link_domain = 'https://'+get_root_domain.domain+'.'+get_root_domain.suffix
+						try:
+							mozdata = self.get_da_pa(check_this_link_domain)
+							da = mozdata[0]
+							pa = mozdata[1]
+							spam_score = mozdata[2]
+
+						except:
+							da = 0
+							pa = 0
+							spam_score = 0
+
+						new_data = {"url":check_this_link_domain,"email":found_email,"DA":da,"PA":pa,"Spam_score":spam_score}
+						self.update_signal.emit(new_data)
+				except:
+					print("something went wrong... next")
+
+			
 					
 
 			#now add DA PA Spam scroe matrix to a new dictionary with prvious data, like this - [{"url":"test.com","email":"test@gmail.com","DA":34,"PA":11,"spam_score":13}]
