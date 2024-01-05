@@ -677,13 +677,18 @@ class Worker(QThread):
 					
 
 	def run(self):
-		total_pages = int((int(self.site_amount)*4)/10)
+		total_pages = int((int(self.site_amount)*10)/10)
 
-		pos_tracking = 11
+		pos_tracking = 0
 
 		url_list = []
+
+		total_email_found = 1
 		
 		for pagenum in range(total_pages):
+
+			if total_email_found > int(self.site_amount):
+				break
 			
 			if pos_tracking == 0:
 				this_page_content = self.search_on_bing(self.keyword,pos_tracking)
@@ -705,6 +710,8 @@ class Worker(QThread):
 
 			for url in new_urls:
 				print("url is - ",url)
+				if total_email_found > int(self.site_amount):
+					break
 				try:
 					found_email=self.scrape_email_from_source(url)
 					if found_email != None:
@@ -723,6 +730,9 @@ class Worker(QThread):
 
 						new_data = {"url":check_this_link_domain,"email":found_email,"DA":da,"PA":pa,"Spam_score":spam_score}
 						self.update_signal.emit(new_data)
+						total_email_found+=1
+						
+
 				except:
 					print("something went wrong... next")
 
